@@ -80,6 +80,8 @@ PAGE = """<!doctype html>
   .dist span.far {{ background: #f3eeee; color: #7a5a5a; }}
   .dist span.unknown {{ background: #f0f0f0; color: #888; font-weight: 400; }}
   .snippet {{ color: #444; font-size: 13px; line-height: 1.5; margin: 8px 0 0; }}
+  a.broker {{ display: inline-block; margin-top: 9px; font-size: 13px; color: #2b5d34; font-weight: 600; text-decoration: none; }}
+  a.broker:hover {{ text-decoration: underline; }}
   .rel {{ float: right; font-size: 12px; color: #888; }}
   footer {{ padding: 16px 24px; color: #888; font-size: 12px; }}
 </style></head>
@@ -195,14 +197,25 @@ def _card(r) -> str:
     dist = (f'<div class="dist">{dist_span("skidspår", "⛷", r.dist_ski_m)}'
             f'{dist_span("skoterled", "🛷", r.dist_scooter_m)}</div>')
     rel = f'<span class="rel">relevans {r.score:.2f}</span>' if r.score else ""
+    extra = " · ".join(x for x in [
+        f"byggår {l['build_year']}" if l.get("build_year") else None,
+        f"energiklass {html.escape(str(l['energy_class']))}" if l.get("energy_class") else None,
+        f"taxeringsvärde {_price(l['taxeringsvarde'])}" if l.get("taxeringsvarde") else None,
+        f"fastighet {html.escape(str(l['fastighet']))}" if l.get("fastighet") else None,
+    ] if x)
+    extra_html = f'<div class="facts" style="color:#555">{extra}</div>' if extra else ""
+    broker = (f'<a class="broker" href="{html.escape(l["broker_url"])}" target="_blank" '
+              f'rel="noopener">mäklarsida ↗</a>') if l.get("broker_url") else ""
     snippet = html.escape((l.get("description") or "")[:300])
     llm = f'<div class="snippet">🤖 {html.escape(r.llm_answer)}</div>' if r.llm_answer else ""
     return f"""<div class="card">{rel}
       <h3><a class="listing" href="{html.escape(l.get('url') or '#')}" target="_blank" rel="noopener">{title}</a></h3>
       <div class="facts">{facts}</div>
+      {extra_html}
       {dist}
       <p class="snippet">{snippet}</p>
       {llm}
+      {broker}
     </div>"""
 
 

@@ -229,8 +229,17 @@ def parse_listing(html: str, url: str) -> Optional[dict[str, Any]]:
         "county": county,
         "title": _clean_text(_first_key(node, "streetAddress", "title", "heading")),
         "description": _clean_text(_first_key(node, "description", "descriptionFormatted")),
+        "build_year": _to_int(to_number(_first_key(node, "legacyConstructionYear", "constructionYear", "yearBuilt"))),
+        "energy_class": _energy_class(_resolve(store, _first_key(node, "energyClassification"))),
+        "broker_url": _first_key(node, "listingBrokerUrl"),
         "raw": node,
     }
+
+
+def _energy_class(value: Any) -> Optional[str]:
+    if isinstance(value, dict):
+        return value.get("classification")
+    return value if isinstance(value, str) else None
 
 
 def _to_int(value: Optional[float]) -> Optional[int]:

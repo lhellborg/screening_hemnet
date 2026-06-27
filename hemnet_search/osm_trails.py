@@ -51,7 +51,11 @@ def _classify(tags: dict) -> Optional[str]:
 def download_trails(cfg: Config, db: Database, *, max_retries: int = 3) -> dict[str, int]:
     """Fetch trails for the configured bbox and store them. Returns counts per kind."""
     query = _overpass_query(cfg.bbox)
-    headers = {"User-Agent": cfg.fetch.user_agent}
+    # Overpass rejects browser-style UAs (406); identify as a normal script client.
+    headers = {
+        "User-Agent": "hemnet-search/0.1 (personal, non-commercial)",
+        "Accept": "application/json",
+    }
     last_err: Optional[Exception] = None
     for attempt in range(max_retries):
         try:

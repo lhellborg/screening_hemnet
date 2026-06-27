@@ -9,7 +9,7 @@
 #   hemnet-search locations "Jämtland"   (resolves names -> ids via Hemnet's autocomplete)
 # then paste the ids here. Counties (län) overlapping the band are listed as a
 # starting point; narrow to municipalities (kommun) if you want a tighter area.
-location_ids: [17942]   # Härjedalens kommun (test). Add more via `hemnet-search locations`.
+location_ids: [17760, 17762]   # Gävleborgs län + Jämtlands län (Gävle <-> Östersund corridor)
 
 # Property types to include (Hemnet `item_types`).
 item_types:
@@ -21,7 +21,7 @@ item_types:
 # Geographic bounding box for the OSM trail download, [south, west, north, east]
 # in WGS84 degrees. Default roughly covers the band described above; tighten it
 # to match your location_ids so the Overpass download stays small.
-bbox: [61.7, 12.1, 63.1, 14.8]
+bbox: [60.5, 14.0, 63.4, 17.6]   # Gävle (S) up to Östersund (N) corridor
 
 # --- Politeness / legality --------------------------------------------------
 fetch:

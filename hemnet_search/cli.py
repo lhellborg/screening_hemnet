@@ -69,6 +69,16 @@ def cmd_embed(args, cfg: Config) -> int:
     return 0
 
 
+def cmd_enrich(args, cfg: Config) -> int:
+    from .broker_enrich import enrich
+
+    with Database(cfg.db_path) as db:
+        print("Fetching broker pages for taxeringsvärde / fastighetsbeteckning...")
+        counts = enrich(cfg, db, max_listings=args.max)
+    print(f"enrich done: {counts}")
+    return 0
+
+
 def cmd_ingest(args, cfg: Config) -> int:
     """Run the full pipeline: fetch -> geo -> embed."""
     rc = cmd_fetch(args, cfg)
@@ -107,7 +117,20 @@ def cmd_search(args, cfg: Config) -> int:
               f"{l.get('living_area') or '—'} m² · "
               f"tomt {l.get('plot_area') or '—'} m² · "
               f"{l.get('municipality') or ''} {l.get('county') or ''}".rstrip())
+        extra = []
+        if l.get('build_year'):
+            extra.append(f"byggår {l['build_year']}")
+        if l.get('energy_class'):
+            extra.append(f"energiklass {l['energy_class']}")
+        if l.get('taxeringsvarde'):
+            extra.append(f"taxeringsvärde {_fmt_price(l['taxeringsvarde'])}")
+        if l.get('fastighet'):
+            extra.append(f"fastighet {l['fastighet']}")
+        if extra:
+            print("   " + " · ".join(extra))
         print(f"   ski {_fmt_dist(r.dist_ski_m)} · scooter {_fmt_dist(r.dist_scooter_m)}")
+        if l.get('broker_url'):
+            print(f"   mäklarsida: {l['broker_url'][:80]}")
         if r.llm_answer:
             print(f"   LLM: {r.llm_answer}")
         print(f"   {l.get('url')}")
@@ -144,6 +167,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("embed", help="Embed listing descriptions (local model)")
     sp.set_defaults(func=cmd_embed)
+
+    sp = sub.add_parser("enrich", help="Fetch broker pages for taxeringsvärde / fastighetsbeteckning")
+    sp.add_argument("--max", type=int, help="Cap number of broker pages to fetch")
+    sp.set_defaults(func=cmd_enrich)
 
     sp = sub.add_parser("ingest", help="Full pipeline: fetch -> geo -> embed")
     sp.add_argument("--max", type=int, help="Cap number of listings (for testing)")

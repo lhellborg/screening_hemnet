@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS listings (
     county        TEXT,
     title         TEXT,
     description   TEXT,
+    build_year    INTEGER,                   -- byggår
+    energy_class  TEXT,                      -- energiklass (A-G)
+    broker_url    TEXT,                      -- link to the broker's own listing page
+    fastighet     TEXT,                      -- fastighetsbeteckning (best-effort)
+    taxeringsvarde INTEGER,                  -- taxeringsvärde (SEK), from broker page
     first_seen    TEXT NOT NULL,
     last_seen     TEXT NOT NULL,
     raw_json      TEXT                       -- full original payload
@@ -77,7 +82,21 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a DB was first created."""
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(listings)")}
+        for name, decl in (
+            ("build_year", "INTEGER"),
+            ("energy_class", "TEXT"),
+            ("broker_url", "TEXT"),
+            ("fastighet", "TEXT"),
+            ("taxeringsvarde", "INTEGER"),
+        ):
+            if name not in cols:
+                self.conn.execute(f"ALTER TABLE listings ADD COLUMN {name} {decl}")
 
     # -- context manager ----------------------------------------------------
     def __enter__(self) -> "Database":
@@ -120,6 +139,10 @@ class Database:
             "county": row.get("county"),
             "title": row.get("title"),
             "description": row.get("description"),
+            "build_year": row.get("build_year"),
+            "energy_class": row.get("energy_class"),
+            "broker_url": row.get("broker_url"),
+            "fastighet": row.get("fastighet"),
             "first_seen": first_seen,
             "last_seen": now_iso(),
             "raw_json": json.dumps(row.get("raw") or {}, ensure_ascii=False),
@@ -139,6 +162,23 @@ class Database:
     def listings_with_coords(self) -> list[sqlite3.Row]:
         return self.conn.execute(
             "SELECT id, lat, lon FROM listings WHERE lat IS NOT NULL AND lon IS NOT NULL"
+        ).fetchall()
+
+    def set_taxering(self, listing_id: str, taxeringsvarde: Optional[int], fastighet: Optional[str] = None) -> None:
+        if fastighet:
+            self.conn.execute(
+                "UPDATE listings SET taxeringsvarde = ?, fastighet = COALESCE(?, fastighet) WHERE id = ?",
+                (taxeringsvarde, fastighet, listing_id),
+            )
+        else:
+            self.conn.execute(
+                "UPDATE listings SET taxeringsvarde = ? WHERE id = ?", (taxeringsvarde, listing_id)
+            )
+
+    def listings_needing_taxering(self) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT id, broker_url, type, title FROM listings "
+            "WHERE broker_url IS NOT NULL AND taxeringsvarde IS NULL"
         ).fetchall()
 
     # -- geo ----------------------------------------------------------------
