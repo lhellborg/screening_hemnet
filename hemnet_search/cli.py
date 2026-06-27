@@ -79,7 +79,7 @@ def cmd_enrich(args, cfg: Config) -> int:
 
     with Database(cfg.db_path) as db:
         print("Fetching broker pages for taxeringsvärde / fastighetsbeteckning...")
-        counts = enrich(cfg, db, max_listings=args.max)
+        counts = enrich(cfg, db, max_listings=args.max, render=args.render)
     print(f"enrich done: {counts}")
     return 0
 
@@ -178,6 +178,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("enrich", help="Fetch broker pages for taxeringsvärde / fastighetsbeteckning")
     sp.add_argument("--max", type=int, help="Cap number of broker pages to fetch")
+    sp.add_argument("--render", action="store_true",
+                    help="Fully render JS pages to catch values loaded client-side (slower)")
     sp.set_defaults(func=cmd_enrich)
 
     sp = sub.add_parser("ingest", help="Full pipeline: fetch -> geo -> embed")

@@ -28,11 +28,15 @@ _CHALLENGE_MARKERS = (
 
 
 class BrowserClient(_BaseFetcher):
-    def __init__(self, fetch: FetchConfig, cache_dir: Path):
+    def __init__(self, fetch: FetchConfig, cache_dir: Path, *, render: bool = False, render_wait_ms: int = 2500):
         super().__init__(fetch, cache_dir)
         self._pw = None
         self._browser = None
         self._context = None
+        # render=True waits for the page's JavaScript to populate values (needed for
+        # broker SPA pages that load taxeringsvärde client-side).
+        self.render = render
+        self.render_wait_ms = render_wait_ms
 
     # -- browser lifecycle --------------------------------------------------
     def _ensure(self):
@@ -83,7 +87,8 @@ class BrowserClient(_BaseFetcher):
         self._ensure()
         page = self._context.new_page()
         try:
-            resp = page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            wait = "networkidle" if self.render else "domcontentloaded"
+            resp = page.goto(url, wait_until=wait, timeout=45000)
             status = resp.status if resp else 0
 
             # Give an anti-bot challenge time to resolve, polling for real content.
@@ -94,6 +99,11 @@ class BrowserClient(_BaseFetcher):
                 html = page.content()
                 # Once the challenge clears, the navigation usually succeeds (200).
                 status = 200 if not self._looks_like_challenge(html) else status
+
+            if self.render:
+                # Let client-side JS finish populating values, then snapshot the DOM.
+                page.wait_for_timeout(self.render_wait_ms)
+                html = page.content()
 
             if self._looks_like_challenge(html):
                 return 403, html

@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from .browser import BrowserClient
 from .config import Config
 from .db import Database
 from .http import FetchBlocked, make_client
@@ -57,18 +58,26 @@ def parse_fastighet(html: str) -> Optional[str]:
     return val or None
 
 
-def enrich(cfg: Config, db: Database, *, max_listings: Optional[int] = None) -> dict[str, int]:
-    """Fetch broker pages and fill taxeringsvärde / fastighetsbeteckning where present."""
+def enrich(
+    cfg: Config, db: Database, *, max_listings: Optional[int] = None, render: bool = False
+) -> dict[str, int]:
+    """Fetch broker pages and fill taxeringsvärde / fastighetsbeteckning where present.
+
+    render=True fully renders each page (slower, re-fetches) so values that brokers
+    load via JavaScript are captured.
+    """
     todo = db.listings_needing_taxering()
     if max_listings:
         todo = todo[:max_listings]
     counts = {"checked": 0, "taxering": 0, "fastighet": 0, "blocked": 0}
 
-    with make_client(cfg.fetch, cfg.cache_dir) as client:
+    client = BrowserClient(cfg.fetch, cfg.cache_dir, render=True) if render else make_client(cfg.fetch, cfg.cache_dir)
+    with client:
         for i, row in enumerate(todo, 1):
             url = row["broker_url"]
             try:
-                html = client.get(url, max_age_seconds=30 * 24 * 3600)
+                # When rendering, bypass the (non-rendered) cache to get JS-populated values.
+                html = client.get(url, use_cache=not render, max_age_seconds=30 * 24 * 3600)
             except FetchBlocked:
                 counts["blocked"] += 1
                 continue
