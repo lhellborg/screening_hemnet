@@ -13,6 +13,11 @@ def _fmt_price(p) -> str:
     return f"{int(p):,} kr".replace(",", " ") if p else "—"
 
 
+def _fmt_signed(n) -> str:
+    sign = "+" if n >= 0 else "−"
+    return f"{sign}{abs(int(n)):,} kr".replace(",", " ")
+
+
 def _fmt_dist(d) -> str:
     if d is None:
         return "—"
@@ -124,6 +129,9 @@ def cmd_search(args, cfg: Config) -> int:
             extra.append(f"energiklass {l['energy_class']}")
         if l.get('taxeringsvarde'):
             extra.append(f"taxeringsvärde {_fmt_price(l['taxeringsvarde'])}")
+        if l.get('price') and l.get('taxeringsvarde'):
+            diff = l['price'] - l['taxeringsvarde']
+            extra.append(f"pris − taxeringsvärde {_fmt_signed(diff)}")
         if l.get('fastighet'):
             extra.append(f"fastighet {l['fastighet']}")
         if extra:

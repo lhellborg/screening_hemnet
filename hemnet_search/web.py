@@ -197,10 +197,16 @@ def _card(r) -> str:
     dist = (f'<div class="dist">{dist_span("skidspår", "⛷", r.dist_ski_m)}'
             f'{dist_span("skoterled", "🛷", r.dist_scooter_m)}</div>')
     rel = f'<span class="rel">relevans {r.score:.2f}</span>' if r.score else ""
+    gap = None
+    if l.get("price") and l.get("taxeringsvarde"):
+        d = l["price"] - l["taxeringsvarde"]
+        gap = ("pris − taxeringsvärde " + ("+" if d >= 0 else "−")
+               + f"{abs(int(d)):,} kr".replace(",", " "))
     extra = " · ".join(x for x in [
         f"byggår {l['build_year']}" if l.get("build_year") else None,
         f"energiklass {html.escape(str(l['energy_class']))}" if l.get("energy_class") else None,
         f"taxeringsvärde {_price(l['taxeringsvarde'])}" if l.get("taxeringsvarde") else None,
+        gap,
         f"fastighet {html.escape(str(l['fastighet']))}" if l.get("fastighet") else None,
     ] if x)
     extra_html = f'<div class="facts" style="color:#555">{extra}</div>' if extra else ""
