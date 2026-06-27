@@ -23,8 +23,12 @@ _WS_RE = re.compile(r"[\s ]+")
 _TAX_RE = re.compile(
     r"taxeringsv[äa]rde\D{0,40}?(\d[\d  \.]{3,})", re.IGNORECASE
 )
+# A Swedish fastighetsbeteckning looks like "Trakt[ Block] N:M" (e.g. "Rännberg 1:21",
+# "Berg Lockåsen 4:18"). Capture up to and including the "N:M" so we don't grab trailing
+# label text from the page.
 _FASTIGHET_RE = re.compile(
-    r"fastighetsbeteckning\W{0,20}?([A-ZÅÄÖ][\wÅÄÖåäö .:\-]{2,45})", re.IGNORECASE
+    r"fastighetsbeteckning\W{0,20}?([A-ZÅÄÖ][\wÅÄÖåäö]*(?:[ \-][A-ZÅÄÖ0-9][\wÅÄÖåäö]*){0,3}[ \-]\d+:\d+)",
+    re.IGNORECASE,
 )
 
 
