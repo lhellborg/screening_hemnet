@@ -1,26 +1,30 @@
-"""Local web UI (FastAPI) for browsing search results — in Swedish.
+"""Local web UI (FastAPI) for browsing search results — in Swedish, with a map.
 
 Run with: hemnet-search serve   (open http://127.0.0.1:8000)
-Everything runs locally; the page queries the local SQLite DB. Type your searches
-in Swedish (the embedding model is multilingual / Swedish-capable), or click the
-fuzzy-word chips.
+Everything runs locally; the page queries the local SQLite DB. The map uses
+Leaflet (vendored) + OpenStreetMap tiles (free, no key). Type your searches in
+Swedish, or click the fuzzy-word chips.
 """
 
 from __future__ import annotations
 
 import html
+import json
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config import Config
 from .db import Database
 from .embed import Embedder
 from .search import Filters, search
 
-# Clickable fuzzy-word chips (Swedish). Clicking one adds/removes the word from the
-# free-text box; the semantic model matches meaning, not just the exact word.
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+NEAR_DEFAULT_M = 2000.0  # "near a trail" when no distance filter is set
+
 CHIPS = [
     "vacker utsikt", "sjönära", "avskilt", "jakt", "fiske", "fjällnära",
     "ski-in ski-out", "nära skidspår", "nära skoterled", "öppen spis",
@@ -38,10 +42,117 @@ def _price(p) -> str:
     return f"{int(p):,} kr".replace(",", " ") if p else "—"
 
 
+# --------------------------------------------------------------------------
+# Map marker helpers
+# --------------------------------------------------------------------------
+def _marker(l: dict, thr_ski: float, thr_scooter: float) -> dict:
+    ds, dsc = l.get("dist_ski_m"), l.get("dist_scooter_m")
+    near = (ds is not None and ds <= thr_ski) or (dsc is not None and dsc <= thr_scooter)
+    title = html.escape(l.get("title") or l.get("type") or "Bostad")
+    url = html.escape(l.get("url") or "#")
+    bits = [f'<b><a href="{url}" target="_blank" rel="noopener">{title}</a></b>',
+            f'{_price(l.get("price"))} · {html.escape(l.get("type") or "")}']
+    bits.append(f'⛷ {_km(ds)} · 🛷 {_km(dsc)}')
+    if l.get("taxeringsvarde"):
+        bits.append(f'taxeringsvärde {_price(l["taxeringsvarde"])}')
+    bits.append('<i>ungefärligt läge</i>')
+    return {
+        "id": l["id"],
+        "lat": l["lat"],
+        "lon": l["lon"],
+        "near": near,
+        "popup": "<br>".join(bits),
+    }
+
+
+MAP_JS = """
+<script>
+(function () {
+  L.Icon.Default.imagePath = "/static/images/";
+  var data = JSON.parse(document.getElementById("markers").textContent || "[]");
+  var map = L.map("map", { scrollWheelZoom: true });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 18,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(map);
+
+  var byId = {}, latlngs = [];
+  data.forEach(function (m) {
+    var mk = L.circleMarker([m.lat, m.lon], {
+      radius: 7, weight: 2, color: "#ffffff",
+      fillColor: m.near ? "#2e9e4f" : "#2b6cb0", fillOpacity: 0.9
+    }).addTo(map);
+    mk.bindPopup(m.popup);
+    mk.on("click", function () { highlight(m.id); });
+    byId[m.id] = mk;
+    latlngs.push([m.lat, m.lon]);
+  });
+  if (latlngs.length) map.fitBounds(latlngs, { padding: [30, 30] });
+  else map.setView([62.5, 15.5], 6);
+
+  document.querySelectorAll(".card").forEach(function (c) {
+    c.addEventListener("click", function (e) {
+      if (e.target.closest("a")) return;
+      var mk = byId[c.dataset.id];
+      if (mk) { map.panTo(mk.getLatLng()); mk.openPopup(); }
+    });
+  });
+  function highlight(id) {
+    var c = document.querySelector('.card[data-id="' + id + '"]');
+    if (!c) return;
+    document.querySelectorAll(".card.hl").forEach(function (x) { x.classList.remove("hl"); });
+    c.classList.add("hl");
+    c.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  // Trails overlay (loaded on demand for the current view)
+  var trailLayer = L.layerGroup(), trailsOn = false;
+  function loadTrails() {
+    if (!trailsOn) return;
+    var b = map.getBounds();
+    fetch("/api/trails?s=" + b.getSouth() + "&w=" + b.getWest() +
+          "&n=" + b.getNorth() + "&e=" + b.getEast())
+      .then(function (r) { return r.json(); })
+      .then(function (t) {
+        trailLayer.clearLayers();
+        (t.ski || []).forEach(function (ln) {
+          L.polyline(ln, { color: "#2b6cb0", weight: 2, opacity: 0.6 }).addTo(trailLayer);
+        });
+        (t.scooter || []).forEach(function (ln) {
+          L.polyline(ln, { color: "#c0392b", weight: 2, opacity: 0.6 }).addTo(trailLayer);
+        });
+      });
+  }
+  map.on("moveend", loadTrails);
+
+  var Toggle = L.Control.extend({
+    options: { position: "topright" },
+    onAdd: function () {
+      var d = L.DomUtil.create("div", "leaflet-bar trail-toggle");
+      d.innerHTML = '<label><input type="checkbox" id="trailchk"> ' +
+        '<span style="color:#2b6cb0">skidspår</span> / ' +
+        '<span style="color:#c0392b">skoterled</span></label>';
+      L.DomEvent.disableClickPropagation(d);
+      return d;
+    }
+  });
+  map.addControl(new Toggle());
+  document.getElementById("trailchk").addEventListener("change", function (e) {
+    trailsOn = e.target.checked;
+    if (trailsOn) { trailLayer.addTo(map); loadTrails(); }
+    else { map.removeLayer(trailLayer); }
+  });
+})();
+</script>
+"""
+
+
 PAGE = """<!doctype html>
 <html lang="sv"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hemnet-sök (lokal)</title>
+<link rel="stylesheet" href="/static/leaflet.css">
+<script src="/static/leaflet.js"></script>
 <style>
   :root {{ color-scheme: light dark; }}
   * {{ box-sizing: border-box; }}
@@ -67,9 +178,12 @@ PAGE = """<!doctype html>
   input[type=range] {{ width: 100%; accent-color: #2b5d34; }}
   .rangeval {{ font-weight: 600; color: #2b5d34; }}
   main {{ padding: 18px 24px; max-width: 1000px; }}
+  #map {{ height: 440px; border-radius: 12px; margin: 4px 0 18px; z-index: 0; }}
+  .trail-toggle {{ background: #fff; padding: 5px 8px; font-size: 12px; }}
   .meta {{ color: #555; font-size: 14px; margin-bottom: 14px; }}
   .card {{ background: #fff; border: 1px solid #e3e3e3; border-radius: 12px; padding: 15px 17px;
-       margin-bottom: 13px; }}
+       margin-bottom: 13px; cursor: pointer; }}
+  .card.hl {{ outline: 2px solid #2b5d34; }}
   .card h3 {{ margin: 0 0 5px; font-size: 17px; }}
   a.listing {{ color: #2b5d34; text-decoration: none; }}
   a.listing:hover {{ text-decoration: underline; }}
@@ -88,7 +202,7 @@ PAGE = """<!doctype html>
 <body>
 <header>
   <h1>🏡 Hemnet-sök</h1>
-  <p>Lokal, gratis sökning — skriv på svenska, eller klicka på orden nedan.</p>
+  <p>Lokal, gratis sökning med karta — skriv på svenska, eller klicka på orden nedan.</p>
 </header>
 <form method="get" action="/" id="searchform">
   <div class="searchrow">
@@ -113,41 +227,34 @@ PAGE = """<!doctype html>
 </form>
 <main>
   <div class="meta">{meta}</div>
+  {map_block}
   {cards}
 </main>
-<footer>Bostadsdata från Hemnets publika sidor (personligt bruk). Avstånd är ungefärliga.
-  Skid- &amp; skoterleder © OpenStreetMap-bidragsgivare (ODbL).</footer>
+<footer>Bostadsdata från Hemnets publika sidor (personligt bruk). Lägen är ungefärliga.
+  Karta &amp; leder &copy; OpenStreetMap-bidragsgivare.</footer>
 <script>
-  function tokens() {{
-    return document.getElementById('q').value.split(/\\s*,\\s*|\\s{{2,}}/).map(s=>s.trim()).filter(Boolean);
-  }}
   function syncChips() {{
     var q = document.getElementById('q').value.toLowerCase();
-    document.querySelectorAll('.chip').forEach(function(c) {{
+    document.querySelectorAll('.chip').forEach(function (c) {{
       c.classList.toggle('active', q.indexOf(c.dataset.word.toLowerCase()) !== -1);
     }});
   }}
-  document.querySelectorAll('.chip').forEach(function(c) {{
-    c.addEventListener('click', function() {{
-      var box = document.getElementById('q');
-      var w = c.dataset.word;
-      var cur = box.value.trim();
+  document.querySelectorAll('.chip').forEach(function (c) {{
+    c.addEventListener('click', function () {{
+      var box = document.getElementById('q'); var w = c.dataset.word; var cur = box.value.trim();
       if (cur.toLowerCase().indexOf(w.toLowerCase()) !== -1) {{
-        // remove the word (and tidy separators)
-        box.value = cur.replace(new RegExp(w, 'i'), '').replace(/\\s{{2,}}/g,' ').replace(/^[,\\s]+|[,\\s]+$/g,'');
-      }} else {{
-        box.value = cur ? (cur + ', ' + w) : w;
-      }}
-      syncChips();
-      box.focus();
+        box.value = cur.replace(new RegExp(w, 'i'), '').replace(/\\s{{2,}}/g, ' ').replace(/^[,\\s]+|[,\\s]+$/g, '');
+      }} else {{ box.value = cur ? (cur + ', ' + w) : w; }}
+      syncChips(); box.focus();
     }});
   }});
   function updRange(which) {{
-    var v = parseFloat(document.getElementById('near_'+which).value);
-    document.getElementById(which+'val').textContent = v <= 0 ? 'valfritt' : ('≤ ' + v.toString().replace('.',',') + ' km');
+    var v = parseFloat(document.getElementById('near_' + which).value);
+    document.getElementById(which + 'val').textContent = v <= 0 ? 'valfritt' : ('≤ ' + v.toString().replace('.', ',') + ' km');
   }}
   syncChips();
 </script>
+{map_js}
 </body></html>"""
 
 
@@ -214,7 +321,7 @@ def _card(r) -> str:
               f'rel="noopener">mäklarsida ↗</a>') if l.get("broker_url") else ""
     snippet = html.escape((l.get("description") or "")[:300])
     llm = f'<div class="snippet">🤖 {html.escape(r.llm_answer)}</div>' if r.llm_answer else ""
-    return f"""<div class="card">{rel}
+    return f"""<div class="card" data-id="{html.escape(str(l.get('id')))}">{rel}
       <h3><a class="listing" href="{html.escape(l.get('url') or '#')}" target="_blank" rel="noopener">{title}</a></h3>
       <div class="facts">{facts}</div>
       {extra_html}
@@ -227,6 +334,8 @@ def _card(r) -> str:
 
 def create_app(cfg: Config) -> FastAPI:
     app = FastAPI(title="Hemnet-sök")
+    if STATIC_DIR.exists():
+        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     embedder = Embedder(cfg.embeddings_model)  # load model once
 
     def _int(v: Optional[str]):
@@ -241,6 +350,16 @@ def create_app(cfg: Config) -> FastAPI:
         except ValueError:
             return None
 
+    @app.get("/api/trails")
+    def trails(s: float, w: float, n: float, e: float):
+        with Database(cfg.db_path) as db:
+            rows = db.trails_in_bbox(s, w, n, e)
+        out: dict[str, list] = {"ski": [], "scooter": []}
+        for t in rows[:2000]:  # cap payload size
+            if t["kind"] in out:
+                out[t["kind"]].append(t["coords"])
+        return out
+
     @app.get("/", response_class=HTMLResponse)
     def home(
         q: str = Query(""),
@@ -253,6 +372,8 @@ def create_app(cfg: Config) -> FastAPI:
     ) -> str:
         ski_km = _float(near_ski) or 0.0
         scooter_km = _float(near_scooter) or 0.0
+        thr_ski = ski_km * 1000 if ski_km > 0 else NEAR_DEFAULT_M
+        thr_scooter = scooter_km * 1000 if scooter_km > 0 else NEAR_DEFAULT_M
         filters = Filters(
             max_price=_int(max_price),
             min_living_area=_float(min_area),
@@ -265,17 +386,30 @@ def create_app(cfg: Config) -> FastAPI:
             filters.max_price, filters.min_living_area, filters.min_plot_area,
             filters.types, filters.max_dist_ski_m, filters.max_dist_scooter_m,
         ])
+
         results = []
-        meta = "Skriv en sökning på svenska eller klicka på orden ovan."
+        markers = []
         if has_criteria:
             with Database(cfg.db_path) as db:
-                results = search(cfg, db, q, filters, limit=50, embedder=embedder)
-            meta = f"{len(results)} träffar" + (f' för “{html.escape(q)}”' if q else "")
+                results = search(cfg, db, q, filters, limit=80, embedder=embedder)
+            markers = [_marker(r.listing, thr_ski, thr_scooter)
+                       for r in results if r.listing.get("lat") is not None]
+            meta = (f"{len(results)} träffar" + (f' för “{html.escape(q)}”' if q else "")
+                    + f" · {len(markers)} på kartan")
+        else:
+            with Database(cfg.db_path) as db:
+                rows = [dict(x) for x in db.listings_for_map()]
+            markers = [_marker(x, thr_ski, thr_scooter) for x in rows]
+            meta = (f"Alla {len(markers)} objekt på kartan — sök eller filtrera ovan "
+                    "för att smalna av.")
 
         cards = "".join(_card(r) for r in results)
         if has_criteria and not results:
             cards = ('<div class="meta">Inga träffar. Har du kört '
                      '<code>hemnet-search ingest</code>? Prova att ta bort några filter.</div>')
+
+        map_block = ('<script id="markers" type="application/json">'
+                     + json.dumps(markers) + '</script>\n<div id="map"></div>')
 
         return PAGE.format(
             q=html.escape(q),
@@ -289,7 +423,9 @@ def create_app(cfg: Config) -> FastAPI:
             ski_label=_range_label(ski_km),
             scooter_label=_range_label(scooter_km),
             meta=meta,
+            map_block=map_block,
             cards=cards,
+            map_js=MAP_JS,
         )
 
     return app

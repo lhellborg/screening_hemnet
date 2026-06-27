@@ -76,6 +76,16 @@ in `config.yaml`. Add `--deep` to a CLI search to have the model judge whether e
 candidate actually matches your question, with a one-line motivation. The tool works fully
 without it.
 
+## Map
+
+The web UI shows the objects on a map (**Leaflet** + **OpenStreetMap** tiles — free, no API
+key; Leaflet is vendored under `hemnet_search/static/`). With no search it plots **all** objects;
+with a search it plots just those, kept in sync with the cards (click a card to fly to its
+marker, click a marker for a popup with price/distances/taxeringsvärde and a Hemnet link).
+Markers are **green when near a ski/scooter trail**, blue otherwise. A top-right toggle overlays
+the **ski (blue) and scooter (red) trails** for the current view. Map tiles need internet (true
+of any map); everything else is local. Locations are **approximate** (see below).
+
 ## Notes & caveats
 
 - **Anti-bot:** Hemnet uses Cloudflare bot protection. The headless-browser backend passes the

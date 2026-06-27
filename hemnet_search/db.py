@@ -164,6 +164,24 @@ class Database:
             "SELECT id, lat, lon FROM listings WHERE lat IS NOT NULL AND lon IS NOT NULL"
         ).fetchall()
 
+    def listings_for_map(self) -> list[sqlite3.Row]:
+        """All listings with coordinates plus the facts a map marker needs."""
+        return self.conn.execute(
+            "SELECT l.id, l.title, l.type, l.price, l.lat, l.lon, l.taxeringsvarde, l.url, "
+            "g.dist_ski_m, g.dist_scooter_m "
+            "FROM listings l LEFT JOIN geo g ON g.listing_id = l.id "
+            "WHERE l.lat IS NOT NULL AND l.lon IS NOT NULL"
+        ).fetchall()
+
+    def trails_in_bbox(self, s: float, w: float, n: float, e: float) -> list[dict]:
+        """Trails (ski/scooter) with at least one point inside the bbox."""
+        out: list[dict] = []
+        for row in self.conn.execute("SELECT kind, geom_json FROM trails"):
+            coords = json.loads(row["geom_json"])
+            if any(s <= lat <= n and w <= lon <= e for lat, lon in coords):
+                out.append({"kind": row["kind"], "coords": coords})
+        return out
+
     def set_taxering(self, listing_id: str, taxeringsvarde: Optional[int], fastighet: Optional[str] = None) -> None:
         if fastighet:
             self.conn.execute(
