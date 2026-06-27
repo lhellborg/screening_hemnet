@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 
 from .config import Config
 from .db import Database
-from .http import FetchBlocked, PoliteClient
+from .http import FetchBlocked, make_client
 
 BASE = "https://www.hemnet.se"
 
@@ -49,6 +49,57 @@ def _iter_dicts(obj: Any) -> Iterator[dict[str, Any]]:
     elif isinstance(obj, list):
         for v in obj:
             yield from _iter_dicts(v)
+
+
+def _build_store(data: Any) -> dict[str, Any]:
+    """Find Hemnet's Apollo normalized cache (a flat 'TypeName:id' -> object map)."""
+    for node in _iter_dicts(data):
+        hits = sum(
+            1
+            for k in node.keys()
+            if isinstance(k, str) and ":" in k and k.split(":", 1)[0][:1].isupper()
+        )
+        if hits >= 5:
+            return node
+    return {}
+
+
+def _resolve(store: dict[str, Any], value: Any) -> Any:
+    """Follow an Apollo {'__ref': 'Type:id'} reference into the store."""
+    if isinstance(value, dict) and "__ref" in value:
+        return store.get(value["__ref"])
+    return value
+
+
+def _geometry_points(data: Any) -> list[tuple[float, float]]:
+    pts: list[tuple[float, float]] = []
+    for node in _iter_dicts(data):
+        if str(node.get("__typename", "")) == "GeometryPoint":
+            lat = to_number(node.get("lat"))
+            lon = to_number(node.get("long"))
+            if lat is not None and lon is not None:
+                pts.append((lat, lon))
+    return pts
+
+
+def _location_names(store: dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+    """Pull municipality and county fullNames from Location objects in the store."""
+    municipality = county = None
+    for v in store.values():
+        if not (isinstance(v, dict) and v.get("__typename") == "Location"):
+            continue
+        loc_type = str(v.get("type", "")).upper()
+        name = v.get("fullName") or v.get("name")
+        if not name:
+            continue
+        low = name.lower()
+        # `type` is sometimes absent from the page's GraphQL selection; Swedish
+        # place names are self-identifying ("... kommun" / "... län").
+        if (loc_type == "MUNICIPALITY" or low.endswith("kommun")) and not municipality:
+            municipality = name
+        elif (loc_type == "COUNTY" or low.endswith("län")) and not county:
+            county = name
+    return municipality, county
 
 
 def _first_key(node: dict[str, Any], *names: str) -> Any:
@@ -91,8 +142,10 @@ def _looks_like_listing(node: dict[str, Any]) -> bool:
     return bool(has_desc and has_coord)
 
 
-def _extract_coords(node: dict[str, Any]) -> tuple[Optional[float], Optional[float]]:
-    coord = _first_key(node, "coordinate", "coordinates")
+def _extract_coords(
+    node: dict[str, Any], data: Any, store: dict[str, Any]
+) -> tuple[Optional[float], Optional[float]]:
+    coord = _resolve(store, _first_key(node, "coordinate", "coordinates"))
     if isinstance(coord, dict):
         lat = to_number(_first_key(coord, "lat", "latitude"))
         lon = to_number(_first_key(coord, "long", "lng", "lon", "longitude"))
@@ -100,7 +153,22 @@ def _extract_coords(node: dict[str, Any]) -> tuple[Optional[float], Optional[flo
             return lat, lon
     lat = to_number(_first_key(node, "latitude"))
     lon = to_number(_first_key(node, "longitude"))
-    return lat, lon
+    if lat is not None and lon is not None:
+        return lat, lon
+    # Hemnet doesn't publish the listing's own point in this payload, but the page
+    # carries the coordinates of nearby sold comparables ("SaleCard"s) that cluster
+    # tightly around it. Use their median as an APPROXIMATE listing location
+    # (good enough for km-scale "near ski/scooter trail" filtering). Median is
+    # robust to the occasional far comparable.
+    pts = _geometry_points(data)
+    if len(pts) >= 3:
+        lats = sorted(p[0] for p in pts)
+        lons = sorted(p[1] for p in pts)
+        mid = len(pts) // 2
+        return lats[mid], lons[mid]
+    if len(pts) == 1:
+        return pts[0]
+    return None, None
 
 
 def _clean_text(value: Any) -> Optional[str]:
@@ -121,13 +189,15 @@ def parse_listing(html: str, url: str) -> Optional[dict[str, Any]]:
     if not data:
         return None
 
+    store = _build_store(data)
+
     # Find the most complete listing-like node.
     candidates = [n for n in _iter_dicts(data) if _looks_like_listing(n)]
     if not candidates:
         return None
     node = max(candidates, key=lambda n: len(json.dumps(n)))
 
-    lat, lon = _extract_coords(node)
+    lat, lon = _extract_coords(node, data, store)
     listing_id = _first_key(node, "id")
     if listing_id is not None:
         listing_id = str(listing_id)
@@ -137,13 +207,12 @@ def parse_listing(html: str, url: str) -> Optional[dict[str, Any]]:
     if not listing_id:
         return None
 
-    location = _first_key(node, "locationDescription", "location", "area")
-    municipality = _clean_text(_first_key(node, "municipality")) or _clean_text(
-        _first_key(location, "municipality") if isinstance(location, dict) else None
-    )
-    county = _clean_text(_first_key(node, "county", "region")) or _clean_text(
-        _first_key(location, "county") if isinstance(location, dict) else None
-    )
+    municipality, county = _location_names(store)
+    municipality = _clean_text(municipality) or _clean_text(_resolve(store, _first_key(node, "municipality")))
+    county = _clean_text(county) or _clean_text(_resolve(store, _first_key(node, "county", "region")))
+    area_name = _clean_text(_first_key(node, "area"))  # e.g. "Siksjön"
+    if area_name and municipality and area_name not in municipality:
+        municipality = f"{area_name}, {municipality}"
 
     return {
         "id": listing_id,
@@ -151,8 +220,8 @@ def parse_listing(html: str, url: str) -> Optional[dict[str, Any]]:
         "type": _clean_text(_first_key(node, "housingForm", "type", "propertyType")),
         "price": _to_int(to_number(_first_key(node, "askingPrice", "price"))),
         "fee": _to_int(to_number(_first_key(node, "fee", "monthlyFee"))),
-        "living_area": to_number(_first_key(node, "livingArea", "boarea")),
-        "plot_area": to_number(_first_key(node, "landArea", "plotArea", "tomtarea")),
+        "living_area": to_number(_first_key(node, "livingArea", "formattedLivingArea", "boarea")),
+        "plot_area": to_number(_first_key(node, "landArea", "formattedLandArea", "plotArea", "tomtarea")),
         "rooms": to_number(_first_key(node, "numberOfRooms", "rooms")),
         "lat": lat,
         "lon": lon,
@@ -226,7 +295,7 @@ def ingest(
     seen: set[str] = set()
     max_age = None if refresh else 24 * 3600  # reuse cache <24h unless --refresh
 
-    with PoliteClient(cfg.fetch, cfg.cache_dir) as client:
+    with make_client(cfg.fetch, cfg.cache_dir) as client:
         # 1) collect listing URLs across paginated search results
         for page in range(1, cfg.fetch.max_pages_per_search + 1):
             url = search_url(location_ids, item_types, page)

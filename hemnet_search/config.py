@@ -21,6 +21,8 @@ class FetchConfig:
     max_retries: int = 4
     respect_robots: bool = True
     max_pages_per_search: int = 50
+    backend: str = "httpx"            # "httpx" (fast) or "playwright" (passes JS challenges)
+    browser_wait_seconds: float = 20.0  # max wait for an anti-bot challenge to clear
 
 
 @dataclass
@@ -65,6 +67,8 @@ class Config:
                 max_retries=int(fetch_raw.get("max_retries", 4)),
                 respect_robots=bool(fetch_raw.get("respect_robots", True)),
                 max_pages_per_search=int(fetch_raw.get("max_pages_per_search", 50)),
+                backend=str(fetch_raw.get("backend", "httpx")),
+                browser_wait_seconds=float(fetch_raw.get("browser_wait_seconds", 20.0)),
             ),
             embeddings_model=emb_raw.get("model", cls.embeddings_model),
             ollama_enabled=bool(ollama_raw.get("enabled", False)),

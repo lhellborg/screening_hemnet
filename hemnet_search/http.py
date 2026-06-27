@@ -1,7 +1,9 @@
-"""A polite HTTP client: robots.txt, rate limiting with jitter, retries, disk cache.
+"""Polite fetchers: robots.txt, rate limiting with jitter, retries, disk cache.
 
-Designed to be a respectful, low-rate reader of public pages only. It never bypasses
-logins or anti-bot challenges; if a request is blocked it backs off and reports it.
+`_BaseFetcher` holds the shared politeness logic. `PoliteClient` fetches with plain
+httpx (fast, but can't pass anti-bot JS challenges). `BrowserClient` (in browser.py)
+drives a real headless browser to read the same public pages when a JS challenge is
+in the way. Neither bypasses logins; both honor robots.txt and rate limits.
 """
 
 from __future__ import annotations
@@ -23,40 +25,36 @@ class FetchBlocked(RuntimeError):
     """Raised when the site refuses the request (e.g. anti-bot challenge / 403)."""
 
 
-class PoliteClient:
+class _BaseFetcher:
+    """Shared cache / robots / rate-limit / retry logic.
+
+    Subclasses implement `_fetch_raw(url) -> (status_code, text)` and
+    `_robots_text(base_url) -> Optional[str]`.
+    """
+
     def __init__(self, fetch: FetchConfig, cache_dir: Path):
         self.fetch = fetch
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._last_request = 0.0
-        self._robots: dict[str, urllib.robotparser.RobotFileParser] = {}
-        self._client = httpx.Client(
-            headers={
-                "User-Agent": fetch.user_agent,
-                "Accept-Language": "sv-SE,sv;q=0.9,en;q=0.8",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            },
-            follow_redirects=True,
-            timeout=30.0,
-        )
+        self._robots: dict[str, Optional[urllib.robotparser.RobotFileParser]] = {}
 
     # -- robots -------------------------------------------------------------
+    def _robots_text(self, base_url: str) -> Optional[str]:  # pragma: no cover - overridden
+        raise NotImplementedError
+
     def _robots_for(self, url: str) -> Optional[urllib.robotparser.RobotFileParser]:
         parsed = urlparse(url)
         base = f"{parsed.scheme}://{parsed.netloc}"
         if base in self._robots:
             return self._robots[base]
-        rp = urllib.robotparser.RobotFileParser()
-        robots_url = urljoin(base, "/robots.txt")
-        try:
-            resp = self._client.get(robots_url)
-            if resp.status_code == 200:
-                rp.parse(resp.text.splitlines())
-            else:
-                rp = None  # type: ignore[assignment]
-        except httpx.HTTPError:
-            rp = None  # type: ignore[assignment]
-        self._robots[base] = rp  # type: ignore[assignment]
+        rp: Optional[urllib.robotparser.RobotFileParser] = urllib.robotparser.RobotFileParser()
+        text = self._robots_text(urljoin(base, "/robots.txt"))
+        if text is None:
+            rp = None
+        else:
+            rp.parse(text.splitlines())
+        self._robots[base] = rp
         return rp
 
     def allowed(self, url: str) -> bool:
@@ -64,8 +62,7 @@ class PoliteClient:
             return True
         rp = self._robots_for(url)
         if rp is None:
-            # Could not read robots.txt — be conservative but proceed (public page,
-            # low rate). Caller still rate-limits.
+            # Could not read robots.txt — proceed conservatively (public page, low rate).
             return True
         return rp.can_fetch(self.fetch.user_agent, url)
 
@@ -83,11 +80,11 @@ class PoliteClient:
         return self.cache_dir / f"{digest}.html"
 
     # -- fetch --------------------------------------------------------------
-    def get(self, url: str, *, use_cache: bool = True, max_age_seconds: Optional[float] = None) -> str:
-        """Fetch a URL's text, using the on-disk cache when available.
+    def _fetch_raw(self, url: str) -> tuple[int, str]:  # pragma: no cover - overridden
+        raise NotImplementedError
 
-        max_age_seconds: if set, cached copies older than this are refetched.
-        """
+    def get(self, url: str, *, use_cache: bool = True, max_age_seconds: Optional[float] = None) -> str:
+        """Fetch a URL's text, using the on-disk cache when available."""
         cache_path = self._cache_path(url)
         if use_cache and cache_path.exists():
             if max_age_seconds is None or (time.time() - cache_path.stat().st_mtime) < max_age_seconds:
@@ -100,38 +97,81 @@ class PoliteClient:
         for attempt in range(self.fetch.max_retries):
             self._throttle()
             try:
-                resp = self._client.get(url)
-            except httpx.HTTPError as exc:
+                status, text = self._fetch_raw(url)
+            except FetchBlocked as exc:
+                last_err = exc
+                time.sleep(min(2 ** attempt, 30) + random.uniform(0, 1))
+                continue
+            except Exception as exc:  # network/browser error
                 last_err = exc
                 time.sleep(min(2 ** attempt, 30) + random.uniform(0, 1))
                 continue
 
-            if resp.status_code == 200:
-                cache_path.write_text(resp.text, encoding="utf-8")
-                return resp.text
-            if resp.status_code in (403, 429, 503):
-                # Anti-bot / rate limit / unavailable — back off and retry a few times.
-                retry_after = resp.headers.get("retry-after")
-                wait = float(retry_after) if retry_after and retry_after.isdigit() else min(2 ** attempt, 30)
-                last_err = FetchBlocked(f"HTTP {resp.status_code} for {url}")
-                time.sleep(wait + random.uniform(0, 1))
-                continue
-            if 500 <= resp.status_code < 600:
-                last_err = httpx.HTTPStatusError("server error", request=resp.request, response=resp)
+            if status == 200 and text:
+                cache_path.write_text(text, encoding="utf-8")
+                return text
+            if status in (403, 429, 503):
+                last_err = FetchBlocked(f"HTTP {status} for {url}")
                 time.sleep(min(2 ** attempt, 30) + random.uniform(0, 1))
                 continue
-            # Other 4xx — not retryable.
-            resp.raise_for_status()
+            if 500 <= status < 600:
+                last_err = RuntimeError(f"server error {status}")
+                time.sleep(min(2 ** attempt, 30) + random.uniform(0, 1))
+                continue
+            raise FetchBlocked(f"HTTP {status} for {url}")
 
         if isinstance(last_err, FetchBlocked):
             raise last_err
         raise FetchBlocked(f"Failed to fetch {url} after {self.fetch.max_retries} attempts: {last_err}")
 
-    def close(self) -> None:
-        self._client.close()
+    def close(self) -> None:  # pragma: no cover - overridden
+        pass
 
-    def __enter__(self) -> "PoliteClient":
+    def __enter__(self):
         return self
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+
+class PoliteClient(_BaseFetcher):
+    """Plain-httpx fetcher. Fast, but cannot pass anti-bot JS challenges."""
+
+    def __init__(self, fetch: FetchConfig, cache_dir: Path):
+        super().__init__(fetch, cache_dir)
+        self._client = httpx.Client(
+            headers={
+                "User-Agent": fetch.user_agent,
+                "Accept-Language": "sv-SE,sv;q=0.9,en;q=0.8",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+            follow_redirects=True,
+            timeout=30.0,
+        )
+
+    def _robots_text(self, robots_url: str) -> Optional[str]:
+        try:
+            resp = self._client.get(robots_url)
+            return resp.text if resp.status_code == 200 else None
+        except httpx.HTTPError:
+            return None
+
+    def _fetch_raw(self, url: str) -> tuple[int, str]:
+        try:
+            resp = self._client.get(url)
+        except httpx.HTTPError as exc:
+            raise RuntimeError(str(exc))
+        return resp.status_code, resp.text
+
+    def close(self) -> None:
+        self._client.close()
+
+
+def make_client(fetch: FetchConfig, cache_dir: Path) -> _BaseFetcher:
+    """Return the fetch backend selected by config (`httpx` or `playwright`)."""
+    backend = (fetch.backend or "httpx").lower()
+    if backend == "playwright":
+        from .browser import BrowserClient
+
+        return BrowserClient(fetch, cache_dir)
+    return PoliteClient(fetch, cache_dir)

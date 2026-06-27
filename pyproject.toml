@@ -11,6 +11,7 @@ dependencies = [
     "sentence-transformers>=3.0",
     "fastapi>=0.110",
     "uvicorn>=0.29",
+    "playwright>=1.44",
 ]
 
 [project.scripts]

@@ -30,8 +30,14 @@ local embeddings             ─┘
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e .        # or: pip install -r the deps in pyproject.toml
+.venv/bin/pip install -e .            # installs deps incl. playwright
+.venv/bin/playwright install chromium # one-time browser download (for the fetch backend)
 ```
+
+The fetcher uses a **headless browser** (`fetch.backend: playwright` in `config.yaml`) because
+Hemnet's pages sit behind a Cloudflare JS challenge that a plain HTTP client can't pass. The
+browser executes that challenge like any visitor, then we read the public HTML. Set
+`fetch.backend: httpx` if you ever need the faster plain-HTTP path (it will be blocked on Hemnet).
 
 ## Quickstart
 
@@ -72,9 +78,14 @@ without it.
 
 ## Notes & caveats
 
-- **Anti-bot:** Hemnet uses bot protection. The fetcher is deliberately slow and polite and
-  backs off on `403/429`, but a run can still be blocked. Keep the request rate low
-  (`fetch.min_delay_seconds` in `config.yaml`) and run small, scheduled batches.
+- **Anti-bot:** Hemnet uses Cloudflare bot protection. The headless-browser backend passes the
+  challenge, but the fetcher is still deliberately slow and polite and backs off on `403/429`.
+  Keep the request rate low (`fetch.min_delay_seconds`) and run small, scheduled batches.
+- **Approximate coordinates:** Hemnet does not publish a listing's exact point in the page data,
+  but each page carries the coordinates of nearby *sold comparables*. We use the **median of
+  those comparables** as the listing's approximate location — good enough for km-scale "near a
+  ski/scooter trail" filtering, but not a house-level pin. Listings with too few comparables get
+  no distance (they still appear in search).
 - **Legal / personal use:** public pages only, no login bypass, no redistribution of Hemnet
   content. Intended for personal, non-commercial use.
 - **Attribution:** trail data is © OpenStreetMap contributors, ODbL.

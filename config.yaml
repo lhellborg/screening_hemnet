@@ -9,7 +9,7 @@
 #   hemnet-search locations "Jämtland"   (resolves names -> ids via Hemnet's autocomplete)
 # then paste the ids here. Counties (län) overlapping the band are listed as a
 # starting point; narrow to municipalities (kommun) if you want a tighter area.
-location_ids: []        # e.g. [17755, 17754, ...]  (fill via `hemnet-search locations`)
+location_ids: [17942]   # Härjedalens kommun (test). Add more via `hemnet-search locations`.
 
 # Property types to include (Hemnet `item_types`).
 item_types:
@@ -21,11 +21,16 @@ item_types:
 # Geographic bounding box for the OSM trail download, [south, west, north, east]
 # in WGS84 degrees. Default roughly covers the band described above; tighten it
 # to match your location_ids so the Overpass download stays small.
-bbox: [60.6, 12.5, 64.4, 19.5]
+bbox: [61.7, 12.1, 63.1, 14.8]
 
 # --- Politeness / legality --------------------------------------------------
 fetch:
-  user_agent: "hemnet-search/0.1 (personal, non-commercial; contact: linda.hellborg@gmail.com)"
+  # "httpx" is fast but is blocked by Hemnet's anti-bot challenge. "playwright"
+  # drives a real headless browser that passes the challenge (needs:
+  # `playwright install chromium`).
+  backend: playwright
+  browser_wait_seconds: 20.0 # max wait for the anti-bot challenge to clear
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
   min_delay_seconds: 3.0     # base delay between requests
   jitter_seconds: 2.0        # random extra delay added on top
   max_retries: 4
