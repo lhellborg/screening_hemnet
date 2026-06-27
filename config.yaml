@@ -1,0 +1,49 @@
+# Configuration for the personal Hemnet search tool.
+# Everything is local and free. Edit the region and politeness settings to taste.
+
+# --- Region -----------------------------------------------------------------
+# The target band: north of Gävle / Falun / Malung, south of Umeå / Strömsund.
+# Hemnet identifies areas by integer `location_id`s used in its search URLs:
+#   https://www.hemnet.se/bostader?location_ids[]=<id>
+# These IDs are NOT guessable. Discover them once with:
+#   hemnet-search locations "Jämtland"   (resolves names -> ids via Hemnet's autocomplete)
+# then paste the ids here. Counties (län) overlapping the band are listed as a
+# starting point; narrow to municipalities (kommun) if you want a tighter area.
+location_ids: []        # e.g. [17755, 17754, ...]  (fill via `hemnet-search locations`)
+
+# Property types to include (Hemnet `item_types`).
+item_types:
+  - villa
+  - fritidshus
+  - gard            # gård / farm
+  - tomt-mark       # plots
+
+# Geographic bounding box for the OSM trail download, [south, west, north, east]
+# in WGS84 degrees. Default roughly covers the band described above; tighten it
+# to match your location_ids so the Overpass download stays small.
+bbox: [60.6, 12.5, 64.4, 19.5]
+
+# --- Politeness / legality --------------------------------------------------
+fetch:
+  user_agent: "hemnet-search/0.1 (personal, non-commercial; contact: linda.hellborg@gmail.com)"
+  min_delay_seconds: 3.0     # base delay between requests
+  jitter_seconds: 2.0        # random extra delay added on top
+  max_retries: 4
+  respect_robots: true
+  max_pages_per_search: 50   # safety cap on pagination
+
+# --- Embeddings (local, free) ----------------------------------------------
+embeddings:
+  # Multilingual model that handles Swedish well. Downloads once, runs offline.
+  model: "intfloat/multilingual-e5-base"
+
+# --- Optional local LLM "deep read" (free, needs Ollama installed) ----------
+ollama:
+  enabled: false
+  url: "http://localhost:11434"
+  model: "llama3.1"
+
+# --- Storage ----------------------------------------------------------------
+paths:
+  db: "data/hemnet.sqlite"
+  cache: "data/cache"

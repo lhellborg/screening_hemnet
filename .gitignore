@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+data/
+*.sqlite
+*.sqlite-journal
+.env
+.DS_Store

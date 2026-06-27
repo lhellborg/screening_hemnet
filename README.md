@@ -1,0 +1,95 @@
+# Hemnet-sök — personal, local, zero-cost property search
+
+A personal tool to search **Hemnet** listings in a fixed region of central/northern
+Sweden — not just on price/area/rooms, but on **fuzzy qualities** in the description
+("jakt", "vacker utsikt", "avskilt") and on **how close each object is to ski tracks
+and scooter trails**.
+
+Everything runs **locally and free**: data is saved in one SQLite file, fuzzy search uses
+a local multilingual embedding model, and the trail data comes from OpenStreetMap. No paid
+APIs, no subscriptions, no per-search cost.
+
+## How it works
+
+```
+fetch (public Hemnet pages) ─┐
+OSM trails (Overpass)        ├─► SQLite (data/hemnet.sqlite) ─► local search (CLI / web UI)
+local embeddings             ─┘
+```
+
+- **Fetch** — reads Hemnet's *public* listing pages politely (honors `robots.txt`,
+  low request rate, disk cache) and parses the JSON embedded in each page.
+- **Geo** — downloads ski tracks (`piste:type=nordic`, `route=ski`) and scooter trails
+  (`snowmobile=*`) from OpenStreetMap and computes each listing's distance to the nearest.
+- **Embed** — a local `sentence-transformers` model (multilingual, Swedish-capable) turns
+  each description into a vector so "panorama" ≈ "utsikt", "jaktmark" ≈ "jakt", etc.
+- **Search** — structured SQL filters (price, area, distances) + semantic ranking. An
+  optional local LLM (Ollama) can re-read top candidates to answer the query directly.
+
+## Setup
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e .        # or: pip install -r the deps in pyproject.toml
+```
+
+## Quickstart
+
+1. **Find the region's `location_id`s** and put them in `config.yaml`:
+   ```bash
+   .venv/bin/hemnet-search locations "Jämtland"
+   .venv/bin/hemnet-search locations "Härjedalen"
+   ```
+   (If the autocomplete endpoint is unavailable, search on hemnet.se and copy the
+   `location_ids[]=` value from the URL.) Add the ids under `location_ids:` in `config.yaml`,
+   and tighten `bbox:` to roughly cover them.
+
+2. **Ingest** (fetch → geo → embed). Start small to confirm it works:
+   ```bash
+   .venv/bin/hemnet-search ingest --max 20
+   ```
+   The first run downloads the embedding model (~1 GB) once.
+
+3. **Search** from the terminal:
+   ```bash
+   .venv/bin/hemnet-search search "jakt och vacker utsikt" --max-price 2000000 --near-scooter 3
+   ```
+
+4. or **browse** in the local web UI:
+   ```bash
+   .venv/bin/hemnet-search serve     # open http://127.0.0.1:8000
+   ```
+
+Re-run `ingest` (e.g. daily, via cron) to pick up new listings — only new/changed ones are
+re-fetched and re-embedded.
+
+## Optional: local LLM "deep read" (free, needs Ollama)
+
+Install [Ollama](https://ollama.com), `ollama pull llama3.1`, then set `ollama.enabled: true`
+in `config.yaml`. Add `--deep` to a CLI search to have the model judge whether each top
+candidate actually matches your question, with a one-line motivation. The tool works fully
+without it.
+
+## Notes & caveats
+
+- **Anti-bot:** Hemnet uses bot protection. The fetcher is deliberately slow and polite and
+  backs off on `403/429`, but a run can still be blocked. Keep the request rate low
+  (`fetch.min_delay_seconds` in `config.yaml`) and run small, scheduled batches.
+- **Legal / personal use:** public pages only, no login bypass, no redistribution of Hemnet
+  content. Intended for personal, non-commercial use.
+- **Attribution:** trail data is © OpenStreetMap contributors, ODbL.
+- Not affiliated with Hemnet. The official `integration.hemnet.se` API is a *broker
+  publishing* API and is not usable for reading all listings as an individual.
+
+## Project layout
+
+```
+config.yaml                 region (location_ids, bbox), politeness, model, ollama
+hemnet_search/
+  config.py  http.py        config loading; polite HTTP client (robots, rate-limit, cache)
+  fetch_hemnet.py locations.py   fetch + parse listings; resolve location ids
+  osm_trails.py             OSM trail download + nearest-distance
+  embed.py  search.py       local embeddings; hybrid search (+ optional Ollama)
+  db.py  cli.py  web.py     SQLite storage; CLI; FastAPI web UI
+data/hemnet.sqlite          everything is stored here
+```
