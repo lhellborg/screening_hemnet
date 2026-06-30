@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent: runs the Hemnet update every other day.
+  Install:
+    cp scripts/com.hemnet-search.update.plist ~/Library/LaunchAgents/
+    launchctl load -w ~/Library/LaunchAgents/com.hemnet-search.update.plist
+  A user LaunchAgent runs in your login session and does NOT need cron's
+  Full Disk Access. Logs go to data/update.log (+ launchd.*.log).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hemnet-search.update</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/lihel5/playground/screening_hemnet/scripts/update.sh</string>
+  </array>
+
+  <!-- Every other day (48 h = 172800 s). launchd runs it on next wake if the
+       Mac was asleep at the interval boundary. -->
+  <key>StartInterval</key>
+  <integer>172800</integer>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/lihel5/playground/screening_hemnet/data/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/lihel5/playground/screening_hemnet/data/launchd.err.log</string>
+</dict>
+</plist>

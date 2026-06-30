@@ -69,22 +69,27 @@ browser executes that challenge like any visitor, then we read the public HTML. 
 Re-run `ingest` (e.g. daily, via cron) to pick up new listings — only new/changed ones are
 re-fetched and re-embedded.
 
-## Scheduled updates (cron)
+## Scheduled updates (launchd — no Full Disk Access needed)
 
 `scripts/update.sh` runs the pipeline (`fetch → geo → embed → enrich`) with a lock so runs can't
 overlap, logs to `data/update.log`, and re-downloads the OSM trails once a week (Sundays). Tune
 the per-run volume with `HEMNET_MAX` / `HEMNET_ENRICH_MAX`.
 
-Install a daily job (03:30):
+It is scheduled with a **user LaunchAgent** (`scripts/com.hemnet-search.update.plist`), which runs
+in your login session and — unlike the cron daemon — does **not** require Full Disk Access. It is
+set to run **every other day** (`StartInterval` = 172800 s); launchd runs it on next wake if the
+Mac was asleep at the boundary.
+
 ```bash
-( crontab -l 2>/dev/null | grep -v 'screening_hemnet/scripts/update.sh'; \
-  echo '30 3 * * * /Users/lihel5/playground/screening_hemnet/scripts/update.sh' ) | crontab -
-crontab -l            # verify
-tail -f data/update.log   # watch a run
+cp scripts/com.hemnet-search.update.plist ~/Library/LaunchAgents/
+launchctl load -w ~/Library/LaunchAgents/com.hemnet-search.update.plist
+launchctl list | grep hemnet     # verify it's loaded
+tail -f data/update.log          # watch a run
+launchctl start com.hemnet-search.update   # trigger one now (optional)
 ```
-The running web app reflects new data automatically (it queries the DB per request — no restart
-needed). **macOS note:** cron needs **Full Disk Access** — add `/usr/sbin/cron` under System
-Settings → Privacy & Security → Full Disk Access, or use a `launchd` LaunchAgent instead.
+To change the frequency, edit `StartInterval` (e.g. `86400` daily, `259200` every 3 days) and
+reload (`launchctl unload … && launchctl load -w …`). The running web app reflects new data
+automatically — it queries the DB per request, no restart needed.
 
 ## Optional: local LLM "deep read" (free, needs Ollama)
 
