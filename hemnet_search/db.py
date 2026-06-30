@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS listings (
     broker_url    TEXT,                      -- link to the broker's own listing page
     fastighet     TEXT,                      -- fastighetsbeteckning (best-effort)
     taxeringsvarde INTEGER,                  -- taxeringsvärde (SEK), from broker page
+    image_url     TEXT,                      -- listing photo (Hemnet CDN)
     first_seen    TEXT NOT NULL,
     last_seen     TEXT NOT NULL,
     raw_json      TEXT                       -- full original payload
@@ -94,6 +95,7 @@ class Database:
             ("broker_url", "TEXT"),
             ("fastighet", "TEXT"),
             ("taxeringsvarde", "INTEGER"),
+            ("image_url", "TEXT"),
         ):
             if name not in cols:
                 self.conn.execute(f"ALTER TABLE listings ADD COLUMN {name} {decl}")
@@ -143,6 +145,7 @@ class Database:
             "energy_class": row.get("energy_class"),
             "broker_url": row.get("broker_url"),
             "fastighet": row.get("fastighet"),
+            "image_url": row.get("image_url"),
             "first_seen": first_seen,
             "last_seen": now_iso(),
             "raw_json": json.dumps(row.get("raw") or {}, ensure_ascii=False),
@@ -168,6 +171,8 @@ class Database:
         """All listings with coordinates plus the facts a map marker needs."""
         return self.conn.execute(
             "SELECT l.id, l.title, l.type, l.price, l.lat, l.lon, l.taxeringsvarde, l.url, "
+            "l.living_area, l.plot_area, l.rooms, l.build_year, l.energy_class, "
+            "l.fastighet, l.broker_url, l.municipality, l.image_url, "
             "g.dist_ski_m, g.dist_scooter_m "
             "FROM listings l LEFT JOIN geo g ON g.listing_id = l.id "
             "WHERE l.lat IS NOT NULL AND l.lon IS NOT NULL"

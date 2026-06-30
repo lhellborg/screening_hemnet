@@ -232,8 +232,22 @@ def parse_listing(html: str, url: str) -> Optional[dict[str, Any]]:
         "build_year": _to_int(to_number(_first_key(node, "legacyConstructionYear", "constructionYear", "yearBuilt"))),
         "energy_class": _energy_class(_resolve(store, _first_key(node, "energyClassification"))),
         "broker_url": _first_key(node, "listingBrokerUrl"),
+        "image_url": _image_url(node),
         "raw": node,
     }
+
+
+def _image_url(node: dict[str, Any]) -> Optional[str]:
+    """First listing photo URL from Hemnet's image CDN (prefer a larger format)."""
+    blob = json.dumps(node, ensure_ascii=False)
+    for pat in (
+        r"https://bilder\.hemnet\.se/images/itemgallery_L/[^\"\\ ]+\.(?:jpg|jpeg|png|webp)",
+        r"https://bilder\.hemnet\.se/images/[^\"\\ ]+\.(?:jpg|jpeg|png|webp)",
+    ):
+        m = re.search(pat, blob)
+        if m:
+            return m.group(0)
+    return None
 
 
 def _energy_class(value: Any) -> Optional[str]:

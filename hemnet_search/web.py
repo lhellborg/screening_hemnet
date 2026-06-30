@@ -45,23 +45,61 @@ def _price(p) -> str:
 # --------------------------------------------------------------------------
 # Map marker helpers
 # --------------------------------------------------------------------------
+def _popup_html(l: dict) -> str:
+    """A rich info-card popup for a map marker."""
+    title = html.escape(l.get("title") or l.get("type") or "Bostad")
+    url = html.escape(l.get("url") or "#")
+    img = ""
+    if l.get("image_url"):
+        img = (f'<img class="pop-img" src="{html.escape(l["image_url"])}" alt="" '
+               f'loading="lazy">')
+    facts = " · ".join(x for x in [
+        _price(l.get("price")),
+        f"{int(l['living_area'])} m²" if l.get("living_area") else None,
+        f"tomt {int(l['plot_area'])} m²" if l.get("plot_area") else None,
+        f"{l['rooms']:g} rok" if l.get("rooms") else None,
+    ] if x)
+    line2 = " · ".join(x for x in [
+        html.escape(l.get("type") or ""),
+        html.escape(l.get("municipality") or ""),
+        f"byggår {l['build_year']}" if l.get("build_year") else None,
+        f"energiklass {html.escape(str(l['energy_class']))}" if l.get("energy_class") else None,
+    ] if x)
+    dist = f'⛷ {_km(l.get("dist_ski_m"))} &nbsp; 🛷 {_km(l.get("dist_scooter_m"))}'
+    tax = ""
+    if l.get("taxeringsvarde"):
+        tax = f'taxeringsvärde {_price(l["taxeringsvarde"])}'
+        if l.get("price"):
+            d = l["price"] - l["taxeringsvarde"]
+            tax += f' · pris − tax {"+" if d >= 0 else "−"}{abs(int(d)):,} kr'.replace(",", " ")
+    fast = f'<div class="pop-sub">{html.escape(str(l["fastighet"]))}</div>' if l.get("fastighet") else ""
+    links = [f'<a href="{url}" target="_blank" rel="noopener">Hemnet ↗</a>']
+    if l.get("broker_url"):
+        links.append(f'<a href="{html.escape(l["broker_url"])}" target="_blank" rel="noopener">mäklarsida ↗</a>')
+    return (
+        f'<div class="pop">{img}'
+        f'<div class="pop-body">'
+        f'<div class="pop-title">{title}</div>'
+        f'<div class="pop-facts">{facts}</div>'
+        f'<div class="pop-sub">{line2}</div>'
+        f'<div class="pop-dist">{dist}</div>'
+        + (f'<div class="pop-sub">{tax}</div>' if tax else "")
+        + fast
+        + f'<div class="pop-links">{" · ".join(links)}</div>'
+        f'<div class="pop-note">ungefärligt läge</div>'
+        f'</div></div>'
+    )
+
+
 def _marker(l: dict, thr_ski: float, thr_scooter: float) -> dict:
     ds, dsc = l.get("dist_ski_m"), l.get("dist_scooter_m")
     near = (ds is not None and ds <= thr_ski) or (dsc is not None and dsc <= thr_scooter)
-    title = html.escape(l.get("title") or l.get("type") or "Bostad")
-    url = html.escape(l.get("url") or "#")
-    bits = [f'<b><a href="{url}" target="_blank" rel="noopener">{title}</a></b>',
-            f'{_price(l.get("price"))} · {html.escape(l.get("type") or "")}']
-    bits.append(f'⛷ {_km(ds)} · 🛷 {_km(dsc)}')
-    if l.get("taxeringsvarde"):
-        bits.append(f'taxeringsvärde {_price(l["taxeringsvarde"])}')
-    bits.append('<i>ungefärligt läge</i>')
     return {
         "id": l["id"],
         "lat": l["lat"],
         "lon": l["lon"],
         "near": near,
-        "popup": "<br>".join(bits),
+        "popup": _popup_html(l),
     }
 
 
@@ -82,7 +120,7 @@ MAP_JS = """
       radius: 7, weight: 2, color: "#ffffff",
       fillColor: m.near ? "#2e9e4f" : "#2b6cb0", fillOpacity: 0.9
     }).addTo(map);
-    mk.bindPopup(m.popup);
+    mk.bindPopup(m.popup, { maxWidth: 300, minWidth: 250, className: "objpop" });
     mk.on("click", function () { highlight(m.id); });
     byId[m.id] = mk;
     latlngs.push([m.lat, m.lon]);
@@ -180,6 +218,16 @@ PAGE = """<!doctype html>
   main {{ padding: 18px 24px; max-width: 1000px; }}
   #map {{ height: 440px; border-radius: 12px; margin: 4px 0 18px; z-index: 0; }}
   .trail-toggle {{ background: #fff; padding: 5px 8px; font-size: 12px; }}
+  .objpop .leaflet-popup-content {{ margin: 0; width: 258px !important; }}
+  .pop-img {{ width: 100%; height: 140px; object-fit: cover; display: block; border-radius: 12px 12px 0 0; }}
+  .pop-body {{ padding: 9px 12px 11px; }}
+  .pop-title {{ font-weight: 700; font-size: 14px; margin-bottom: 3px; line-height: 1.25; }}
+  .pop-facts {{ font-size: 13px; color: #222; }}
+  .pop-sub {{ font-size: 12px; color: #555; margin-top: 2px; }}
+  .pop-dist {{ font-size: 12px; color: #1e4527; margin-top: 6px; font-weight: 600; }}
+  .pop-links {{ margin-top: 8px; font-size: 13px; }}
+  .pop-links a {{ color: #2b5d34; font-weight: 600; text-decoration: none; }}
+  .pop-note {{ font-size: 11px; color: #999; margin-top: 6px; }}
   .meta {{ color: #555; font-size: 14px; margin-bottom: 14px; }}
   .card {{ background: #fff; border: 1px solid #e3e3e3; border-radius: 12px; padding: 15px 17px;
        margin-bottom: 13px; cursor: pointer; }}
