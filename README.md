@@ -69,6 +69,23 @@ browser executes that challenge like any visitor, then we read the public HTML. 
 Re-run `ingest` (e.g. daily, via cron) to pick up new listings — only new/changed ones are
 re-fetched and re-embedded.
 
+## Scheduled updates (cron)
+
+`scripts/update.sh` runs the pipeline (`fetch → geo → embed → enrich`) with a lock so runs can't
+overlap, logs to `data/update.log`, and re-downloads the OSM trails once a week (Sundays). Tune
+the per-run volume with `HEMNET_MAX` / `HEMNET_ENRICH_MAX`.
+
+Install a daily job (03:30):
+```bash
+( crontab -l 2>/dev/null | grep -v 'screening_hemnet/scripts/update.sh'; \
+  echo '30 3 * * * /Users/lihel5/playground/screening_hemnet/scripts/update.sh' ) | crontab -
+crontab -l            # verify
+tail -f data/update.log   # watch a run
+```
+The running web app reflects new data automatically (it queries the DB per request — no restart
+needed). **macOS note:** cron needs **Full Disk Access** — add `/usr/sbin/cron` under System
+Settings → Privacy & Security → Full Disk Access, or use a `launchd` LaunchAgent instead.
+
 ## Optional: local LLM "deep read" (free, needs Ollama)
 
 Install [Ollama](https://ollama.com), `ollama pull llama3.1`, then set `ollama.enabled: true`
