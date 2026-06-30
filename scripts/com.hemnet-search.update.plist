@@ -19,10 +19,15 @@
     <string>/Users/lihel5/playground/screening_hemnet/scripts/update.sh</string>
   </array>
 
-  <!-- Every other day (48 h = 172800 s). launchd runs it on next wake if the
-       Mac was asleep at the interval boundary. -->
-  <key>StartInterval</key>
-  <integer>172800</integer>
+  <!-- Fire daily at 12:30 (machine likely awake); update.sh gates to every
+       other day. launchd runs a missed run once on the next wake. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>12</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
 
   <key>RunAtLoad</key>
   <false/>

@@ -14,6 +14,13 @@ LOCK="$PROJECT/data/.update.lock"
 cd "$PROJECT" || exit 1
 mkdir -p "$PROJECT/data"
 
+# Every other day: the agent fires daily (when the Mac is awake), but we only do
+# real work on even epoch-days. Set HEMNET_EVERY_OTHER_DAY=0 to run every day.
+if [ "${HEMNET_EVERY_OTHER_DAY:-1}" = "1" ] && [ $(( $(date +%s) / 86400 % 2 )) -ne 0 ]; then
+  echo "$(date '+%F %T') — off day, skipping" >> "$LOG"
+  exit 0
+fi
+
 # Prevent overlapping runs (mkdir is atomic).
 if ! mkdir "$LOCK" 2>/dev/null; then
   echo "$(date '+%F %T') — update already running, skipping" >> "$LOG"

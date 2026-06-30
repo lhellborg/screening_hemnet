@@ -76,9 +76,10 @@ overlap, logs to `data/update.log`, and re-downloads the OSM trails once a week 
 the per-run volume with `HEMNET_MAX` / `HEMNET_ENRICH_MAX`.
 
 It is scheduled with a **user LaunchAgent** (`scripts/com.hemnet-search.update.plist`), which runs
-in your login session and — unlike the cron daemon — does **not** require Full Disk Access. It is
-set to run **every other day** (`StartInterval` = 172800 s); launchd runs it on next wake if the
-Mac was asleep at the boundary.
+in your login session and — unlike the cron daemon — does **not** require Full Disk Access. It
+fires **daily at 12:30** (a time the Mac is likely awake) and the script gates real work to
+**every other day**. If the Mac is asleep at 12:30, launchd runs the missed job once on the next
+wake. Set `HEMNET_EVERY_OTHER_DAY=0` to run every day instead.
 
 ```bash
 cp scripts/com.hemnet-search.update.plist ~/Library/LaunchAgents/
@@ -87,8 +88,8 @@ launchctl list | grep hemnet     # verify it's loaded
 tail -f data/update.log          # watch a run
 launchctl start com.hemnet-search.update   # trigger one now (optional)
 ```
-To change the frequency, edit `StartInterval` (e.g. `86400` daily, `259200` every 3 days) and
-reload (`launchctl unload … && launchctl load -w …`). The running web app reflects new data
+To change the time, edit `StartCalendarInterval` (Hour/Minute) in the plist and reload
+(`launchctl unload … && launchctl load -w …`). The running web app reflects new data
 automatically — it queries the DB per request, no restart needed.
 
 ## Optional: local LLM "deep read" (free, needs Ollama)
