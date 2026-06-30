@@ -29,8 +29,10 @@ fi
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 
 {
-  echo "===== $(date '+%F %T') update start ====="
-  "$PY" -m hemnet_search.cli fetch --max "${HEMNET_MAX:-150}" || echo "[fetch failed]"
+  echo "===== $(date '+%F %T') update start (loc=${HEMNET_LOCATION_ID:-all}) ====="
+  LOC=""
+  [ -n "${HEMNET_LOCATION_ID:-}" ] && LOC="--location-id ${HEMNET_LOCATION_ID}"
+  "$PY" -m hemnet_search.cli fetch --max "${HEMNET_MAX:-150}" $LOC || echo "[fetch failed]"
 
   # Trails change rarely: reuse them on weekdays, re-download once a week (Sun).
   if [ "$(date +%u)" = "7" ]; then

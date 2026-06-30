@@ -45,8 +45,10 @@ def cmd_locations(args, cfg: Config) -> int:
 def cmd_fetch(args, cfg: Config) -> int:
     from .fetch_hemnet import ingest
 
+    location_ids = getattr(args, "location_id", None) or None
     with Database(cfg.db_path) as db:
-        counts = ingest(cfg, db, max_listings=args.max, refresh=args.refresh)
+        counts = ingest(cfg, db, location_ids=location_ids,
+                        max_listings=args.max, refresh=args.refresh)
     print(f"\nfetch done: {counts}")
     return 0
 
@@ -167,6 +169,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("fetch", help="Fetch + parse listings into the DB")
     sp.add_argument("--max", type=int, help="Cap number of listings (for testing)")
     sp.add_argument("--refresh", action="store_true", help="Ignore cache, refetch")
+    sp.add_argument("--location-id", type=int, action="append",
+                    help="Restrict to this Hemnet location_id (repeatable); default = config")
     sp.set_defaults(func=cmd_fetch)
 
     sp = sub.add_parser("geo", help="Download OSM trails and compute distances")
@@ -186,6 +190,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--max", type=int, help="Cap number of listings (for testing)")
     sp.add_argument("--refresh", action="store_true")
     sp.add_argument("--skip-download", action="store_true")
+    sp.add_argument("--location-id", type=int, action="append",
+                    help="Restrict to this Hemnet location_id (repeatable); default = config")
     sp.set_defaults(func=cmd_ingest)
 
     sp = sub.add_parser("search", help="Search listings")

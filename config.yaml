@@ -33,8 +33,8 @@ fetch:
   backend: playwright
   browser_wait_seconds: 20.0 # max wait for the anti-bot challenge to clear
   user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-  min_delay_seconds: 3.0     # base delay between requests
-  jitter_seconds: 2.0        # random extra delay added on top
+  min_delay_seconds: 6.0     # base delay between requests (gentle, avoids Cloudflare blocks)
+  jitter_seconds: 4.0        # random extra delay added on top
   max_retries: 4
   respect_robots: true
   max_pages_per_search: 50   # safety cap on pagination

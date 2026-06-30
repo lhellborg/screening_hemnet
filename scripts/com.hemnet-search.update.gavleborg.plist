@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.hemnet-search.update.gavleborg</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/lihel5/playground/screening_hemnet/scripts/update.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HEMNET_LOCATION_ID</key><string>17760</string>
+    <key>HEMNET_EVERY_OTHER_DAY</key><string>0</string>
+    <key>HEMNET_MAX</key><string>120</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key><integer>2</integer>
+    <key>Hour</key><integer>12</integer>
+    <key>Minute</key><integer>30</integer>
+  </dict>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>/Users/lihel5/playground/screening_hemnet/data/launchd.out.log</string>
+  <key>StandardErrorPath</key><string>/Users/lihel5/playground/screening_hemnet/data/launchd.err.log</string>
+</dict>
+</plist>

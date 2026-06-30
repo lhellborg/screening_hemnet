@@ -75,22 +75,32 @@ re-fetched and re-embedded.
 overlap, logs to `data/update.log`, and re-downloads the OSM trails once a week (Sundays). Tune
 the per-run volume with `HEMNET_MAX` / `HEMNET_ENRICH_MAX`.
 
-It is scheduled with a **user LaunchAgent** (`scripts/com.hemnet-search.update.plist`), which runs
-in your login session and — unlike the cron daemon — does **not** require Full Disk Access. It
-fires **daily at 12:30** (a time the Mac is likely awake) and the script gates real work to
-**every other day**. If the Mac is asleep at 12:30, launchd runs the missed job once on the next
-wake. Set `HEMNET_EVERY_OTHER_DAY=0` to run every day instead.
+It is scheduled with **four user LaunchAgents — one per county** — instead of one big run, so
+each fetch is small and they never overlap (a single giant crawl tends to get blocked by
+Hemnet's Cloudflare). They run in your login session and — unlike the cron daemon — do **not**
+require Full Disk Access. Each fires weekly at **12:30** on its own weekday (a time the Mac is
+likely awake; launchd runs a missed slot once on the next wake):
+
+| County | location_id | Day |
+|---|---|---|
+| Dalarna | 17759 | Mon |
+| Gävleborg | 17760 | Tue |
+| Västernorrland | 17761 | Wed |
+| Jämtland | 17762 | Thu |
+
+Each plist sets `HEMNET_LOCATION_ID` (the county) and `HEMNET_MAX` (per-run cap). Install/manage:
 
 ```bash
-cp scripts/com.hemnet-search.update.plist ~/Library/LaunchAgents/
-launchctl load -w ~/Library/LaunchAgents/com.hemnet-search.update.plist
-launchctl list | grep hemnet     # verify it's loaded
-tail -f data/update.log          # watch a run
-launchctl start com.hemnet-search.update   # trigger one now (optional)
+for f in scripts/com.hemnet-search.update.*.plist; do
+  cp "$f" ~/Library/LaunchAgents/ && launchctl load -w ~/Library/LaunchAgents/"$(basename "$f")"
+done
+launchctl list | grep hemnet                              # verify (4 agents)
+tail -f data/update.log                                    # watch runs
+launchctl start com.hemnet-search.update.dalarna           # trigger one now (optional)
 ```
-To change the time, edit `StartCalendarInterval` (Hour/Minute) in the plist and reload
-(`launchctl unload … && launchctl load -w …`). The running web app reflects new data
-automatically — it queries the DB per request, no restart needed.
+Fetch one county by hand any time: `hemnet-search fetch --location-id 17759 --max 120`. The
+running web app reflects new data automatically — it queries the DB per request, no restart
+needed.
 
 ## Optional: local LLM "deep read" (free, needs Ollama)
 
