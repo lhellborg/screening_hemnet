@@ -82,8 +82,9 @@ The web UI shows the objects on a map (**Leaflet** + **OpenStreetMap** tiles —
 key; Leaflet is vendored under `hemnet_search/static/`). With no search it plots **all** objects;
 with a search it plots just those, kept in sync with the cards (click a card to fly to its
 marker, click a marker for a popup with price/distances/taxeringsvärde and a Hemnet link).
-Markers are **green when near a ski/scooter trail**, blue otherwise. A top-right toggle overlays
-the **ski (blue) and scooter (red) trails** for the current view. Map tiles need internet (true
+Markers are **green when near a ski/scooter trail**, blue otherwise. A top-right toggle overlays,
+for the current view: **cross-country ski tracks (blue), scooter trails (red), downhill/alpine
+pistes (orange), and ski lifts (black dashed)** — so you can see resorts and lift systems. Map tiles need internet (true
 of any map); everything else is local. Locations are **approximate** (see below).
 
 ## Notes & caveats

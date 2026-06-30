@@ -109,6 +109,7 @@ MAP_JS = """
   L.Icon.Default.imagePath = "/static/images/";
   var data = JSON.parse(document.getElementById("markers").textContent || "[]");
   var map = L.map("map", { scrollWheelZoom: true });
+  window.hemnetMap = map;
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -159,6 +160,12 @@ MAP_JS = """
         (t.scooter || []).forEach(function (ln) {
           L.polyline(ln, { color: "#c0392b", weight: 2, opacity: 0.6 }).addTo(trailLayer);
         });
+        (t.downhill || []).forEach(function (ln) {
+          L.polyline(ln, { color: "#e67e22", weight: 3, opacity: 0.8 }).addTo(trailLayer);
+        });
+        (t.lift || []).forEach(function (ln) {
+          L.polyline(ln, { color: "#000000", weight: 2, opacity: 0.8, dashArray: "4 4" }).addTo(trailLayer);
+        });
       });
   }
   map.on("moveend", loadTrails);
@@ -167,9 +174,12 @@ MAP_JS = """
     options: { position: "topright" },
     onAdd: function () {
       var d = L.DomUtil.create("div", "leaflet-bar trail-toggle");
-      d.innerHTML = '<label><input type="checkbox" id="trailchk"> ' +
-        '<span style="color:#2b6cb0">skidspår</span> / ' +
-        '<span style="color:#c0392b">skoterled</span></label>';
+      d.innerHTML = '<label><input type="checkbox" id="trailchk"> visa leder &amp; liftar</label>' +
+        '<div class="trail-legend">' +
+        '<span style="color:#2b6cb0">— skidspår</span> ' +
+        '<span style="color:#c0392b">— skoterled</span> ' +
+        '<span style="color:#e67e22">— utförsåkning</span> ' +
+        '<span style="color:#000">--- skidlift</span></div>';
       L.DomEvent.disableClickPropagation(d);
       return d;
     }
@@ -218,6 +228,8 @@ PAGE = """<!doctype html>
   main {{ padding: 18px 24px; max-width: 1000px; }}
   #map {{ height: 440px; border-radius: 12px; margin: 4px 0 18px; z-index: 0; }}
   .trail-toggle {{ background: #fff; padding: 5px 8px; font-size: 12px; }}
+  .trail-legend {{ margin-top: 4px; font-size: 11px; font-weight: 600; line-height: 1.5; }}
+  .trail-legend span {{ margin-right: 6px; white-space: nowrap; }}
   .objpop .leaflet-popup-content {{ margin: 0; width: 258px !important; }}
   .pop-img {{ width: 100%; height: 140px; object-fit: cover; display: block; border-radius: 12px 12px 0 0; }}
   .pop-body {{ padding: 9px 12px 11px; }}
@@ -402,8 +414,8 @@ def create_app(cfg: Config) -> FastAPI:
     def trails(s: float, w: float, n: float, e: float):
         with Database(cfg.db_path) as db:
             rows = db.trails_in_bbox(s, w, n, e)
-        out: dict[str, list] = {"ski": [], "scooter": []}
-        for t in rows[:2000]:  # cap payload size
+        out: dict[str, list] = {"ski": [], "scooter": [], "downhill": [], "lift": []}
+        for t in rows[:4000]:  # cap payload size
             if t["kind"] in out:
                 out[t["kind"]].append(t["coords"])
         return out

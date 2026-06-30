@@ -21,7 +21,7 @@ item_types:
 # Geographic bounding box for the OSM trail download, [south, west, north, east]
 # in WGS84 degrees. Default roughly covers the band described above; tighten it
 # to match your location_ids so the Overpass download stays small.
-bbox: [60.5, 14.0, 63.4, 17.6]   # Gävle (S) up to Östersund (N) corridor
+bbox: [60.3, 12.0, 64.9, 17.6]   # widened to cover all objects incl. western fjäll (Åre/Vemdalen/Funäsdalen) & north (Strömsund)
 
 # --- Politeness / legality --------------------------------------------------
 fetch:

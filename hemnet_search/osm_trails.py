@@ -4,6 +4,8 @@ compute each listing's distance to the nearest of each.
 Data: OpenStreetMap via the Overpass API (free; ODbL — attribution required).
   - Cross-country ski tracks: piste:type=nordic, route=ski
   - Scooter / snowmobile trails (skoterleder): snowmobile=*, piste:type=snowmobile
+  - Downhill (alpine) pistes: piste:type=downhill
+  - Ski lifts: aerialway=* (chair_lift, gondola, drag_lift, ...)
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ def _overpass_query(bbox: list[float]) -> str:
     s, w, n, e = bbox
     b = f"{s},{w},{n},{e}"
     return f"""
-[out:json][timeout:180];
+[out:json][timeout:300];
 (
   way["piste:type"="nordic"]({b});
   way["route"="ski"]({b});
@@ -35,12 +37,20 @@ def _overpass_query(bbox: list[float]) -> str:
   way["snowmobile"]({b});
   way["piste:type"="snowmobile"]({b});
   relation["route"="snowmobile"]({b});
+  way["piste:type"="downhill"]({b});
+  relation["piste:type"="downhill"]({b});
+  way["aerialway"]({b});
 );
 out geom;
 """.strip()
 
 
 def _classify(tags: dict) -> Optional[str]:
+    aerialway = tags.get("aerialway")
+    if aerialway and aerialway not in ("station", "pylon", "no"):
+        return "lift"
+    if tags.get("piste:type") == "downhill":
+        return "downhill"
     if tags.get("snowmobile") or tags.get("piste:type") == "snowmobile" or tags.get("route") == "snowmobile":
         return "scooter"
     if tags.get("piste:type") == "nordic" or tags.get("route") == "ski":
@@ -69,7 +79,7 @@ def download_trails(cfg: Config, db: Database, *, max_retries: int = 3) -> dict[
     else:
         raise RuntimeError(f"Overpass request failed: {last_err}")
 
-    counts = {"ski": 0, "scooter": 0}
+    counts = {"ski": 0, "scooter": 0, "downhill": 0, "lift": 0}
     db.clear_trails()
     for el in payload.get("elements", []):
         kind = _classify(el.get("tags", {}) or {})
